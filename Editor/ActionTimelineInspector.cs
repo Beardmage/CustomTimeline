@@ -13,7 +13,7 @@ namespace Beardmage.ActionTimeline.Editor
     [CustomEditor(typeof(ActionTimelineAsset))]
     public sealed class ActionTimelineInspector : UnityEditor.Editor
     {
-        private SerializedProperty tracksProperty;
+        private SerializedProperty categoriesProperty;
         private readonly TimelineValidator validator = new TimelineValidator();
 
         private bool showTrackOverview = true;
@@ -21,7 +21,7 @@ namespace Beardmage.ActionTimeline.Editor
 
         private void OnEnable()
         {
-            tracksProperty = serializedObject.FindProperty("tracks");
+            categoriesProperty = serializedObject.FindProperty("categories");
         }
 
         public override void OnInspectorGUI()
@@ -62,6 +62,7 @@ namespace Beardmage.ActionTimeline.Editor
             EditorGUILayout.LabelField("Summary", EditorStyles.boldLabel);
 
             int trackCount = timeline.Tracks?.Count ?? 0;
+            int categoryCount = timeline.Categories?.Count ?? 0;
             int validClipCount = validator.CountValidClips(timeline);
             float duration = TimelineDurationUtility.GetTimelineDuration(timeline);
 
@@ -78,6 +79,7 @@ namespace Beardmage.ActionTimeline.Editor
 
             using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
             {
+                EditorGUILayout.LabelField("Categories", categoryCount.ToString());
                 EditorGUILayout.LabelField("Tracks", trackCount.ToString());
                 EditorGUILayout.LabelField("Valid Clips", validClipCount.ToString());
                 EditorGUILayout.LabelField("Duration", TimelineDurationUtility.FormatSeconds(duration));
@@ -99,44 +101,55 @@ namespace Beardmage.ActionTimeline.Editor
 
             if (showTrackOverview)
             {
-                if (tracksProperty == null || tracksProperty.arraySize <= 0)
+                if (categoriesProperty == null || categoriesProperty.arraySize <= 0)
                 {
                     EditorGUILayout.HelpBox(
-                        "No tracks to display.",
+                        "No categories to display.",
                         MessageType.None);
                 }
                 else
                 {
                     EditorGUILayout.BeginVertical(EditorStyles.helpBox);
 
-                    for (int trackIndex = 0; trackIndex < tracksProperty.arraySize; trackIndex++)
+                    int flatTrackIndex = 0;
+                    for (int categoryIndex = 0; categoryIndex < categoriesProperty.arraySize; categoryIndex++)
                     {
-                        SerializedProperty trackProperty = tracksProperty.GetArrayElementAtIndex(trackIndex);
-                        SerializedProperty trackNameProperty = trackProperty.FindPropertyRelative("trackName");
-                        SerializedProperty enabledProperty = trackProperty.FindPropertyRelative("isEnabled");
-                        SerializedProperty clipsProperty = trackProperty.FindPropertyRelative("clips");
+                        SerializedProperty categoryProperty = categoriesProperty.GetArrayElementAtIndex(categoryIndex);
+                        SerializedProperty categoryNameProperty = categoryProperty.FindPropertyRelative("categoryName");
+                        SerializedProperty categoryEnabledProperty = categoryProperty.FindPropertyRelative("isEnabled");
+                        SerializedProperty tracksProperty = categoryProperty.FindPropertyRelative("tracks");
+                        string categoryName = string.IsNullOrWhiteSpace(categoryNameProperty.stringValue)
+                            ? $"Category {categoryIndex + 1}"
+                            : categoryNameProperty.stringValue;
 
-                        string trackName = string.IsNullOrWhiteSpace(trackNameProperty.stringValue)
-                            ? $"Track {trackIndex + 1}"
-                            : trackNameProperty.stringValue;
+                        EditorGUILayout.LabelField(
+                            $"{categoryName} ({(categoryEnabledProperty.boolValue ? "Enabled" : "Disabled")})",
+                            EditorStyles.boldLabel);
 
-                        int clipCount = clipsProperty?.arraySize ?? 0;
-
-                        ActionTimelineTrack runtimeTrack = GetRuntimeTrack(timeline, trackIndex);
-                        bool hasOverlap = runtimeTrack != null && TimelineOverlapUtility.TrackHasOverlap(runtimeTrack);
-
-                        using (new EditorGUILayout.HorizontalScope())
+                        int categoryTrackCount = tracksProperty != null ? tracksProperty.arraySize : 0;
+                        for (int localTrackIndex = 0; localTrackIndex < categoryTrackCount; localTrackIndex++, flatTrackIndex++)
                         {
-                            string enabledLabel = enabledProperty.boolValue ? "Enabled" : "Disabled";
-                            string overlapLabel = hasOverlap ? " | Overlap" : string.Empty;
+                            SerializedProperty trackProperty = tracksProperty.GetArrayElementAtIndex(localTrackIndex);
+                            SerializedProperty trackNameProperty = trackProperty.FindPropertyRelative("trackName");
+                            SerializedProperty enabledProperty = trackProperty.FindPropertyRelative("isEnabled");
+                            SerializedProperty clipsProperty = trackProperty.FindPropertyRelative("clips");
+                            string trackName = string.IsNullOrWhiteSpace(trackNameProperty.stringValue)
+                                ? $"Track {flatTrackIndex + 1}"
+                                : trackNameProperty.stringValue;
+                            int clipCount = clipsProperty?.arraySize ?? 0;
+                            ActionTimelineTrack runtimeTrack = GetRuntimeTrack(timeline, flatTrackIndex);
+                            bool hasOverlap = runtimeTrack != null && TimelineOverlapUtility.TrackHasOverlap(runtimeTrack);
 
-                            EditorGUILayout.LabelField(
-                                $"{trackIndex + 1}. {trackName}",
-                                GUILayout.MinWidth(140f));
-
-                            EditorGUILayout.LabelField(
-                                $"{enabledLabel} | Clips: {clipCount}{overlapLabel}",
-                                EditorStyles.miniLabel);
+                            using (new EditorGUILayout.HorizontalScope())
+                            {
+                                GUILayout.Space(14f);
+                                string enabledLabel = enabledProperty.boolValue ? "Enabled" : "Disabled";
+                                string overlapLabel = hasOverlap ? " | Overlap" : string.Empty;
+                                EditorGUILayout.LabelField(trackName, GUILayout.MinWidth(126f));
+                                EditorGUILayout.LabelField(
+                                    $"{enabledLabel} | Clips: {clipCount}{overlapLabel}",
+                                    EditorStyles.miniLabel);
+                            }
                         }
                     }
 

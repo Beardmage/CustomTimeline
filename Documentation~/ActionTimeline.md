@@ -1,4 +1,4 @@
-# Action Timeline — V1 Clean Export
+# Action Timeline — V1f
 
 ## Purpose
 
@@ -7,7 +7,7 @@ Action Timeline is a generic ScriptableObject-based authoring tool for timeline-
 It keeps the useful skeleton from a project-specific feedback timeline tool:
 
 - Timeline asset
-- Tracks
+- Categories and tracks
 - Clips
 - ScriptableObject actions
 - Start times
@@ -22,9 +22,9 @@ Each project decides how to interpret and execute timeline actions.
 
 ## Core model
 
-`ActionTimelineAsset` contains ordered `ActionTimelineTrack` entries.
+`ActionTimelineAsset` contains ordered `ActionTimelineCategory` entries.
 
-Each `ActionTimelineTrack` contains ordered `ActionTimelineClip` entries.
+Each category owns ordered `ActionTimelineTrack` entries, and each track owns ordered `ActionTimelineClip` entries.
 
 Each `ActionTimelineClip` references one `TimelineAction` and stores:
 
@@ -34,10 +34,10 @@ Each `ActionTimelineClip` references one `TimelineAction` and stores:
 - duration override toggle
 - duration override value
 
-`TimelineAction` is an abstract `ScriptableObject` with only:
+`TimelineAction` is a concrete, extensible `ScriptableObject` with a nominal duration:
 
 ```csharp
-public virtual float NominalDuration => 0f;
+public virtual float NominalDuration => nominalDuration;
 ```
 
 There is no `Execute` method in this package.
@@ -62,6 +62,19 @@ The package provides:
 - lightweight `ActionTimelineAsset` inspector
 - shared `TimelineAction` inspector
 - action usage index and clip focus navigation
+
+The editor window preserves the original V1d canvas geometry and interaction model:
+
+- category foldouts and indented child tracks
+- category activity boxes spanning the first to last child clip
+- category box drag moves every child clip while preserving the initial mouse grab offset
+- Ctrl/Cmd + click toggles clips in a multi-selection
+- Shift + click on a track selects every clip on that track
+- dragging a selected clip body moves the entire selection
+- clip move, resize-left, and resize-right remain mutually exclusive
+- clip snapping and last-valid-hovered-track behavior remain active during moves
+
+Category proportional resize is intentionally deferred.
 
 ## Package boundaries
 

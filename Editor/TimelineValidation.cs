@@ -175,7 +175,7 @@ namespace Beardmage.ActionTimeline.Editor
                             clipIndex));
                     }
 
-                    if (track.IsEnabled && clip.IsValid)
+                    if (track.IsEnabled && IsTrackInEnabledCategory(timeline, trackIndex) && clip.IsValid)
                         validClipCount++;
                 }
             }
@@ -202,7 +202,7 @@ namespace Beardmage.ActionTimeline.Editor
             for (int trackIndex = 0; trackIndex < trackCount; trackIndex++)
             {
                 ActionTimelineTrack track = tracks[trackIndex];
-                if (track == null || !track.IsEnabled)
+                if (track == null || !track.IsEnabled || !IsTrackInEnabledCategory(timeline, trackIndex))
                     continue;
 
                 IReadOnlyList<ActionTimelineClip> clips = track.Clips;
@@ -216,6 +216,22 @@ namespace Beardmage.ActionTimeline.Editor
             }
 
             return count;
+        }
+
+        private static bool IsTrackInEnabledCategory(ActionTimelineAsset timeline, int flatTrackIndex)
+        {
+            IReadOnlyList<ActionTimelineCategory> categories = timeline.Categories;
+            int categoryCount = categories?.Count ?? 0;
+            int currentFlatTrackIndex = 0;
+            for (int categoryIndex = 0; categoryIndex < categoryCount; categoryIndex++)
+            {
+                ActionTimelineCategory category = categories[categoryIndex];
+                int trackCount = category?.Tracks?.Count ?? 0;
+                if (flatTrackIndex < currentFlatTrackIndex + trackCount)
+                    return category != null && category.IsEnabled;
+                currentFlatTrackIndex += trackCount;
+            }
+            return true;
         }
 
         private static string GetTrackName(ActionTimelineTrack track, int index)

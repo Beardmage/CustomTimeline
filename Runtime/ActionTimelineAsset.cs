@@ -11,10 +11,45 @@ namespace Beardmage.ActionTimeline
     [CreateAssetMenu(menuName = "Action Timeline/Timeline")]
     public sealed class ActionTimelineAsset : ScriptableObject
     {
-        [SerializeField, Tooltip("Ordered tracks composing this action timeline.")]
-        private List<ActionTimelineTrack> tracks = new List<ActionTimelineTrack>(4);
+        [SerializeField, Tooltip("Ordered categories composing this action timeline.")]
+        private List<ActionTimelineCategory> categories = new List<ActionTimelineCategory>
+        {
+            new ActionTimelineCategory()
+        };
 
-        public IReadOnlyList<ActionTimelineTrack> Tracks => tracks;
+        [NonSerialized]
+        private List<ActionTimelineTrack> flattenedTracks;
+
+        public IReadOnlyList<ActionTimelineCategory> Categories => categories;
+
+        /// <summary>
+        /// Flattened read-only view for consumers that do not need authoring categories.
+        /// Tracks are serialized exclusively inside their owning category.
+        /// </summary>
+        public IReadOnlyList<ActionTimelineTrack> Tracks
+        {
+            get
+            {
+                if (flattenedTracks == null)
+                    flattenedTracks = new List<ActionTimelineTrack>(8);
+
+                flattenedTracks.Clear();
+                int categoryCount = categories?.Count ?? 0;
+                for (int categoryIndex = 0; categoryIndex < categoryCount; categoryIndex++)
+                {
+                    ActionTimelineCategory category = categories[categoryIndex];
+                    if (category == null)
+                        continue;
+
+                    IReadOnlyList<ActionTimelineTrack> categoryTracks = category.Tracks;
+                    int trackCount = categoryTracks?.Count ?? 0;
+                    for (int trackIndex = 0; trackIndex < trackCount; trackIndex++)
+                        flattenedTracks.Add(categoryTracks[trackIndex]);
+                }
+
+                return flattenedTracks;
+            }
+        }
 
         /// <summary>
         /// Computes the authored read duration of this timeline.
@@ -23,31 +58,65 @@ namespace Beardmage.ActionTimeline
         public float GetDuration()
         {
             float maxDuration = 0f;
-            int trackCount = tracks?.Count ?? 0;
-
-            for (int trackIndex = 0; trackIndex < trackCount; trackIndex++)
+            int categoryCount = categories?.Count ?? 0;
+            for (int categoryIndex = 0; categoryIndex < categoryCount; categoryIndex++)
             {
-                ActionTimelineTrack track = tracks[trackIndex];
-                if (track == null || !track.IsEnabled)
+                ActionTimelineCategory category = categories[categoryIndex];
+                if (category == null || !category.IsEnabled)
                     continue;
 
-                IReadOnlyList<ActionTimelineClip> clipList = track.Clips;
-                int clipCount = clipList?.Count ?? 0;
-
-                for (int clipIndex = 0; clipIndex < clipCount; clipIndex++)
+                IReadOnlyList<ActionTimelineTrack> trackList = category.Tracks;
+                int trackCount = trackList?.Count ?? 0;
+                for (int trackIndex = 0; trackIndex < trackCount; trackIndex++)
                 {
-                    ActionTimelineClip clip = clipList[clipIndex];
-                    if (clip == null || !clip.IsValid)
+                    ActionTimelineTrack track = trackList[trackIndex];
+                    if (track == null || !track.IsEnabled)
                         continue;
 
-                    float clipEnd = clip.StartTime + clip.GetEffectiveDuration();
-                    if (clipEnd > maxDuration)
-                        maxDuration = clipEnd;
+                    IReadOnlyList<ActionTimelineClip> clipList = track.Clips;
+                    int clipCount = clipList?.Count ?? 0;
+                    for (int clipIndex = 0; clipIndex < clipCount; clipIndex++)
+                    {
+                        ActionTimelineClip clip = clipList[clipIndex];
+                        if (clip == null || !clip.IsValid)
+                            continue;
+
+                        float clipEnd = clip.StartTime + clip.GetEffectiveDuration();
+                        if (clipEnd > maxDuration)
+                            maxDuration = clipEnd;
+                    }
                 }
             }
 
             return maxDuration;
         }
+    }
+
+    /// <summary>
+    /// Authoring group containing an ordered set of timeline tracks.
+    /// </summary>
+    [Serializable]
+    public sealed class ActionTimelineCategory
+    {
+        [SerializeField, Tooltip("Authoring label for this category.")]
+        private string categoryName = "Default Category";
+
+        [SerializeField, Tooltip("If disabled, tracks in this category are ignored by duration calculation.")]
+        private bool isEnabled = true;
+
+        [SerializeField, Tooltip("Editor foldout state for this category.")]
+        private bool isExpanded = true;
+
+        [SerializeField, Tooltip("Ordered tracks owned by this category.")]
+        private List<ActionTimelineTrack> tracks = new List<ActionTimelineTrack>
+        {
+            new ActionTimelineTrack()
+        };
+
+        public string CategoryName => categoryName;
+        public bool IsEnabled => isEnabled;
+        public bool IsExpanded => isExpanded;
+        public IReadOnlyList<ActionTimelineTrack> Tracks => tracks;
     }
 
     /// <summary>

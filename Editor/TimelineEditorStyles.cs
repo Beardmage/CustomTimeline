@@ -14,6 +14,8 @@ namespace Beardmage.ActionTimeline.Editor
         private static int lastThemeSignature;
 
         public static GUIStyle TrackLabelStyle { get; private set; }
+        public static GUIStyle CategoryLabelStyle { get; private set; }
+        public static GUIStyle TrackChildLabelStyle { get; private set; }
         public static GUIStyle ClipLabelStyle { get; private set; }
         public static GUIStyle InspectorHeaderStyle { get; private set; }
         public static GUIStyle EmptyStateStyle { get; private set; }
@@ -42,6 +44,10 @@ namespace Beardmage.ActionTimeline.Editor
         public static Color WarningColor => ActiveTheme.WarningColor;
         public static Color ErrorColor => ActiveTheme.ErrorColor;
         public static Color AddTrackButtonColor => ActiveTheme.AddTrackButtonColor;
+        public static Color CategoryRowColor => Color.Lerp(ActiveTheme.PanelBackground, ActiveTheme.LaneBackground, 0.35f);
+        public static Color TrackChildRowColor => Color.Lerp(ActiveTheme.PanelBackground, ActiveTheme.LaneAlternateBackground, 0.65f);
+        public static Color CategoryActivityColor => new Color(0.28f, 0.48f, 0.72f, 0.72f);
+        public static Color CategoryActivitySelectedColor => new Color(0.20f, 0.58f, 0.95f, 0.9f);
 
         private static TimelineEditorThemeAsset ActiveTheme => activeTheme ? activeTheme : TimelineEditorThemeDefaults.Instance;
 
@@ -70,6 +76,15 @@ namespace Beardmage.ActionTimeline.Editor
                     alignment = TextAnchor.MiddleLeft,
                     clipping = TextClipping.Clip,
                     fontStyle = FontStyle.Bold
+                };
+
+                CategoryLabelStyle = new GUIStyle(TrackLabelStyle);
+
+                TrackChildLabelStyle = new GUIStyle(EditorStyles.label)
+                {
+                    alignment = TextAnchor.MiddleLeft,
+                    clipping = TextClipping.Clip,
+                    fontStyle = FontStyle.Normal
                 };
 
                 ClipLabelStyle = new GUIStyle(EditorStyles.miniLabel)
@@ -133,6 +148,8 @@ namespace Beardmage.ActionTimeline.Editor
             activeTheme = null;
             lastThemeSignature = 0;
             TrackLabelStyle = null;
+            CategoryLabelStyle = null;
+            TrackChildLabelStyle = null;
             ClipLabelStyle = null;
             InspectorHeaderStyle = null;
             EmptyStateStyle = null;
@@ -163,13 +180,25 @@ namespace Beardmage.ActionTimeline.Editor
 
         private static void ApplyThemeToStyles()
         {
-            if (TrackLabelStyle == null || ClipLabelStyle == null || InspectorHeaderStyle == null || EmptyStateStyle == null || MiniBadgeStyle == null)
+            if (TrackLabelStyle == null || CategoryLabelStyle == null || TrackChildLabelStyle == null ||
+                ClipLabelStyle == null || InspectorHeaderStyle == null || EmptyStateStyle == null || MiniBadgeStyle == null)
                 return;
 
             TrackLabelStyle.normal.textColor = ActiveTheme.RulerTextColor;
             TrackLabelStyle.hover.textColor = ActiveTheme.RulerTextColor;
             TrackLabelStyle.active.textColor = ActiveTheme.RulerTextColor;
             TrackLabelStyle.focused.textColor = ActiveTheme.RulerTextColor;
+
+            CategoryLabelStyle.normal.textColor = ActiveTheme.RulerTextColor;
+            CategoryLabelStyle.hover.textColor = ActiveTheme.RulerTextColor;
+            CategoryLabelStyle.active.textColor = ActiveTheme.RulerTextColor;
+            CategoryLabelStyle.focused.textColor = ActiveTheme.RulerTextColor;
+
+            Color childTextColor = Color.Lerp(ActiveTheme.RulerTextColor, Color.white, 0.28f);
+            TrackChildLabelStyle.normal.textColor = childTextColor;
+            TrackChildLabelStyle.hover.textColor = childTextColor;
+            TrackChildLabelStyle.active.textColor = childTextColor;
+            TrackChildLabelStyle.focused.textColor = childTextColor;
 
             ClipLabelStyle.normal.textColor = ActiveTheme.ClipTextColor;
             ClipLabelStyle.hover.textColor = ActiveTheme.ClipTextColor;
