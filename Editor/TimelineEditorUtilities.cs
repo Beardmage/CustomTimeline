@@ -10,12 +10,6 @@ namespace Beardmage.ActionTimeline.Editor
     {
         public const string DefaultTimelineDirectory = "Assets/ActionTimelines";
 
-        [MenuItem("Assets/Create/Action Timeline/Timeline", priority = 210)]
-        public static void CreateTimelineFromAssetsMenu()
-        {
-            CreateAndSelectNewTimeline();
-        }
-
         [MenuItem("Tools/Action Timeline/Create Timeline")]
         public static void CreateTimelineFromToolsMenu()
         {

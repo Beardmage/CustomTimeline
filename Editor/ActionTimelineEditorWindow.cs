@@ -1208,46 +1208,80 @@ namespace Beardmage.ActionTimeline.Editor
 
         private void DrawInspectorPanel(Rect rect, List<TimelineValidationResult> validationResults)
         {
-            EditorGUI.DrawRect(rect, TimelineEditorStyles.PanelBackground);
-            EditorGUI.DrawRect(new Rect(rect.x, rect.y, 1f, rect.height), TimelineEditorStyles.MajorGridLineColor);
+            Rect safeRect = new Rect(
+                Mathf.Round(rect.x),
+                Mathf.Round(rect.y),
+                Mathf.Max(1f, Mathf.Round(rect.width)),
+                Mathf.Max(1f, Mathf.Round(rect.height)));
+
+            EditorGUI.DrawRect(safeRect, TimelineEditorStyles.PanelBackground);
+            EditorGUI.DrawRect(new Rect(safeRect.x, safeRect.y, 1f, safeRect.height), TimelineEditorStyles.MajorGridLineColor);
 
             Rect areaRect = new Rect(
-                rect.x + 8f,
-                rect.y + 8f,
-                Mathf.Max(10f, rect.width - 16f),
-                Mathf.Max(10f, rect.height - 16f));
+                safeRect.x + 8f,
+                safeRect.y + 8f,
+                Mathf.Max(10f, safeRect.width - 16f),
+                Mathf.Max(10f, safeRect.height - 16f));
 
-            GUILayout.BeginArea(areaRect);
-            EditorGUILayout.BeginVertical(GUILayout.ExpandWidth(true), GUILayout.ExpandHeight(true));
+            if (float.IsNaN(state.InspectorScroll.x) || float.IsNaN(state.InspectorScroll.y))
+                state.InspectorScroll = Vector2.zero;
 
-            using (new EditorGUILayout.HorizontalScope())
+            float previousLabelWidth = EditorGUIUtility.labelWidth;
+            EditorGUIUtility.labelWidth = Mathf.Min(120f, areaRect.width * 0.42f);
+
+            GUI.BeginGroup(areaRect);
+            GUILayout.BeginArea(new Rect(0f, 0f, areaRect.width, areaRect.height));
+            try
             {
-                GUILayout.Label("Inspector", TimelineEditorStyles.InspectorHeaderStyle, GUILayout.ExpandWidth(true));
+                using (new EditorGUILayout.VerticalScope(GUILayout.Width(areaRect.width), GUILayout.Height(areaRect.height)))
+                {
+                    using (new EditorGUILayout.HorizontalScope())
+                    {
+                        EditorGUILayout.LabelField("Inspector", EditorStyles.boldLabel, GUILayout.ExpandWidth(true));
 
-                bool newShowShortcutHints = GUILayout.Toggle(
-                    state.ShowShortcutHints,
-                    "⌨ Shortcuts",
-                    EditorStyles.miniButton,
-                    GUILayout.Width(92f),
-                    GUILayout.Height(20f));
+                        bool newShowShortcutHints = GUILayout.Toggle(
+                            state.ShowShortcutHints,
+                            "⌨ Shortcuts",
+                            EditorStyles.miniButton,
+                            GUILayout.Width(92f),
+                            GUILayout.Height(20f));
 
-                if (newShowShortcutHints != state.ShowShortcutHints)
-                    state.ShowShortcutHints = newShowShortcutHints;
+                        if (newShowShortcutHints != state.ShowShortcutHints)
+                            state.ShowShortcutHints = newShowShortcutHints;
+                    }
+
+                    EditorGUILayout.LabelField("Selection", GetSelectionSummary(), EditorStyles.miniLabel);
+
+                    if (state.ShowShortcutHints)
+                        DrawShortcutHintsPanelLayout();
+
+                    EditorGUILayout.Space(4f);
+
+                    state.InspectorScroll = EditorGUILayout.BeginScrollView(
+                        state.InspectorScroll,
+                        GUILayout.ExpandWidth(true),
+                        GUILayout.ExpandHeight(true));
+
+                    DrawSelectedInspectorContent(validationResults);
+
+                    EditorGUILayout.EndScrollView();
+                }
             }
+            finally
+            {
+                GUILayout.EndArea();
+                GUI.EndGroup();
+                EditorGUIUtility.labelWidth = previousLabelWidth;
+            }
+        }
 
-            EditorGUILayout.LabelField("Selection", GetSelectionSummary(), EditorStyles.miniLabel);
-
-            if (state.ShowShortcutHints)
-                DrawShortcutHintsPanelLayout();
-
-            EditorGUILayout.Space(4f);
-
-            state.InspectorScroll = EditorGUILayout.BeginScrollView(
-                state.InspectorScroll,
-                false,
-                true,
-                GUILayout.ExpandWidth(true),
-                GUILayout.ExpandHeight(true));
+        private void DrawSelectedInspectorContent(List<TimelineValidationResult> validationResults)
+        {
+            if (!state.HasTimeline || state.TimelineSerializedObject == null)
+            {
+                EditorGUILayout.HelpBox("No timeline selected.", MessageType.Info);
+                return;
+            }
 
             if (state.HasClipSelection)
             {
@@ -1255,22 +1289,21 @@ namespace Beardmage.ActionTimeline.Editor
                     DrawClipInspector();
                 else
                     EditorGUILayout.HelpBox("Clip selection is active but the selected clip property could not be resolved.", MessageType.Warning);
+
+                return;
             }
-            else if (state.HasTrackSelection)
+
+            if (state.HasTrackSelection)
             {
                 if (GetSelectedTrackProperty() != null)
                     DrawTrackInspector();
                 else
                     EditorGUILayout.HelpBox("Track selection is active but the selected track property could not be resolved.", MessageType.Warning);
-            }
-            else
-            {
-                DrawTimelineInspector(validationResults);
+
+                return;
             }
 
-            EditorGUILayout.EndScrollView();
-            EditorGUILayout.EndVertical();
-            GUILayout.EndArea();
+            DrawTimelineInspector(validationResults);
         }
 
         private void DrawShortcutHintsPanelLayout()
@@ -1311,7 +1344,7 @@ namespace Beardmage.ActionTimeline.Editor
 
         private void DrawTimelineInspector(List<TimelineValidationResult> validationResults)
         {
-            GUILayout.Label("Timeline", TimelineEditorStyles.InspectorHeaderStyle);
+            GUILayout.Label("Timeline", EditorStyles.boldLabel);
             EditorGUILayout.ObjectField("Asset", state.Timeline, typeof(ActionTimelineAsset), false);
             int trackCount = state.Timeline.Tracks?.Count ?? 0;
             int validClipCount = validator.CountValidClips(state.Timeline);
@@ -1320,7 +1353,7 @@ namespace Beardmage.ActionTimeline.Editor
             EditorGUILayout.LabelField("Valid Clips", validClipCount.ToString());
             EditorGUILayout.LabelField("Duration", TimelineDurationUtility.FormatSeconds(duration));
             EditorGUILayout.Space(8f);
-            GUILayout.Label("Validation", TimelineEditorStyles.InspectorHeaderStyle);
+            GUILayout.Label("Validation", EditorStyles.boldLabel);
             if (validationResults.Count <= 0)
             {
                 EditorGUILayout.HelpBox("No validation issues found.", MessageType.Info);
@@ -1340,7 +1373,7 @@ namespace Beardmage.ActionTimeline.Editor
                 return;
             }
 
-            GUILayout.Label("Track", TimelineEditorStyles.InspectorHeaderStyle);
+            GUILayout.Label("Track", EditorStyles.boldLabel);
             SerializedProperty trackNameProperty = trackProperty.FindPropertyRelative("trackName");
             SerializedProperty enabledProperty = trackProperty.FindPropertyRelative("isEnabled");
             SerializedProperty clipsProperty = trackProperty.FindPropertyRelative("clips");
@@ -1366,7 +1399,7 @@ namespace Beardmage.ActionTimeline.Editor
                 return;
             }
 
-            GUILayout.Label("Clip", TimelineEditorStyles.InspectorHeaderStyle);
+            GUILayout.Label("Clip", EditorStyles.boldLabel);
             SerializedProperty debugNameProperty = clipProperty.FindPropertyRelative("debugName");
             SerializedProperty startTimeProperty = clipProperty.FindPropertyRelative("startTime");
             SerializedProperty actionProperty = clipProperty.FindPropertyRelative("action");
@@ -1397,7 +1430,7 @@ namespace Beardmage.ActionTimeline.Editor
             float effectiveDuration = GetClipEffectiveDuration(clipProperty);
             float endTime = GetClipEndTime(clipProperty);
             EditorGUILayout.Space(8f);
-            GUILayout.Label("Computed", TimelineEditorStyles.InspectorHeaderStyle);
+            GUILayout.Label("Computed", EditorStyles.boldLabel);
             EditorGUILayout.LabelField("Nominal Duration", TimelineDurationUtility.FormatSeconds(TimelineDurationUtility.GetActionNominalDuration(action)));
             EditorGUILayout.LabelField("Effective Duration", TimelineDurationUtility.FormatSeconds(effectiveDuration));
             EditorGUILayout.LabelField("End Time", TimelineDurationUtility.FormatSeconds(endTime));
