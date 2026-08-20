@@ -268,12 +268,6 @@ namespace Beardmage.ActionTimeline.Editor
                 return;
             }
 
-            if (GUILayout.Button("Settings", EditorStyles.toolbarButton, GUILayout.Width(62f)))
-                PingOrCreateSettingsAsset();
-
-            if (GUILayout.Button("Theme", EditorStyles.toolbarButton, GUILayout.Width(52f)))
-                PingOrCreateThemeAsset();
-
             if (GUILayout.Button("Create New Timeline", EditorStyles.toolbarButton, GUILayout.Width(125f)))
             {
                 ActionTimelineAsset created = ActionTimelineAssetCreationUtility.CreateAndSelectNewTimeline(ActionTimelineAssetCreationUtility.DefaultTimelineDirectory);
@@ -309,6 +303,15 @@ namespace Beardmage.ActionTimeline.Editor
 
             DrawPixelsPerSecondPopup();
             GUILayout.FlexibleSpace();
+
+            bool previousToolbarEnabled = GUI.enabled;
+            GUI.enabled = true;
+            if (GUILayout.Button("Settings", EditorStyles.toolbarButton, GUILayout.Width(62f)))
+                PingOrCreateSettingsAsset();
+
+            if (GUILayout.Button("Theme", EditorStyles.toolbarButton, GUILayout.Width(52f)))
+                PingOrCreateThemeAsset();
+            GUI.enabled = previousToolbarEnabled;
 
             bool newShowShortcuts = GUILayout.Toggle(state.ShowShortcutHints, "⌨", EditorStyles.toolbarButton, GUILayout.Width(26f));
             if (newShowShortcuts != state.ShowShortcutHints)
@@ -2033,9 +2036,13 @@ namespace Beardmage.ActionTimeline.Editor
                 EditorGUILayout.LabelField("Shortcuts", EditorStyles.boldLabel);
                 DrawShortcutRowLayout("Delete / Backspace", "Delete selected category, track, or clip selection");
                 DrawShortcutRowLayout("T", "Add track");
-                DrawShortcutRowLayout("A", "Add clip");
+                DrawShortcutRowLayout("A", "Add clip at the playhead or hovered cursor position");
+                DrawShortcutRowLayout("Ctrl/Cmd + C", "Copy selected category, track, or clip(s)");
+                DrawShortcutRowLayout("Ctrl/Cmd + V", "Paste at the live timeline pointer, or at the playhead for a selected track");
+                DrawShortcutRowLayout("Ctrl/Cmd + D", "Duplicate selected category, track, or clip(s)");
                 DrawShortcutRowLayout("Ctrl/Cmd + Click", "Toggle clip selection");
                 DrawShortcutRowLayout("Shift + Track", "Select every clip on the track");
+                DrawShortcutRowLayout("Click / Drag ruler", "Set or move the white playhead");
                 DrawShortcutRowLayout("F", "Frame timeline");
                 DrawShortcutRowLayout("Esc", "Cancel manipulation / clear selection");
             }
@@ -2046,7 +2053,7 @@ namespace Beardmage.ActionTimeline.Editor
             using (new EditorGUILayout.HorizontalScope())
             {
                 GUILayout.Label(key, EditorStyles.centeredGreyMiniLabel, GUILayout.Width(86f));
-                GUILayout.Label(description, EditorStyles.miniLabel, GUILayout.ExpandWidth(true));
+                GUILayout.Label(description, EditorStyles.wordWrappedMiniLabel, GUILayout.ExpandWidth(true));
             }
         }
 
@@ -2385,16 +2392,18 @@ namespace Beardmage.ActionTimeline.Editor
             int trackCount = GetSerializedTrackCount();
             if (trackCount <= 0)
                 return -1;
-            if (state.HasLastMouseTimelineContext && state.LastHoveredTrackIndex >= 0)
-                return Mathf.Clamp(state.LastHoveredTrackIndex, 0, trackCount - 1);
-            if (state.HasLastMouseTimelineContext)
+            if (currentPointerContext.IsInsideCanvas && currentPointerContext.IsInsideLaneArea)
+                return Mathf.Clamp(currentPointerContext.HoveredLaneIndex, 0, trackCount - 1);
+            if (currentPointerContext.IsInsideCanvas)
             {
-                int nearestTrack = GetNearestTrackToVisibleRow(state.LastHoveredRowIndex);
+                int nearestTrack = GetNearestTrackToVisibleRow(currentPointerContext.HoveredRowIndex);
                 if (nearestTrack >= 0)
                     return nearestTrack;
             }
             if (state.HasTrackSelection || state.HasClipSelection)
                 return Mathf.Clamp(state.SelectedTrackIndex, 0, trackCount - 1);
+            if (state.HasLastMouseTimelineContext && state.LastHoveredTrackIndex >= 0)
+                return Mathf.Clamp(state.LastHoveredTrackIndex, 0, trackCount - 1);
             return 0;
         }
 
@@ -2419,6 +2428,12 @@ namespace Beardmage.ActionTimeline.Editor
 
         private float GetPreferredPasteTime()
         {
+            if (currentPointerContext.IsInsideCanvas)
+                return Mathf.Max(0f, currentPointerContext.TimeAtMouse);
+
+            if (state.HasTrackSelection || state.HasClipSelection || state.HasCategorySelection)
+                return state.PlayheadTime;
+
             return state.HasLastMouseTimelineContext ? Mathf.Max(0f, state.LastMouseTime) : state.PlayheadTime;
         }
 

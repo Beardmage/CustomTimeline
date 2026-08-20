@@ -1,6 +1,6 @@
 {
   "name": "com.beardmage.action-timeline",
-  "version": "0.1.6",
+  "version": "0.1.9",
   "displayName": "Action Timeline",
   "description": "Generic ScriptableObject-based action timeline authoring tool for Unity. Provides category-grouped tracks, clips, multi-selection, editor tooling, validation, and action usage navigation without project-specific runtime execution.",
   "unity": "2022.3",
