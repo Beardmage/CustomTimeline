@@ -1,4 +1,4 @@
-# Action Timeline — V1f
+# Action Timeline — V1f ergonomics pass
 
 ## Purpose
 
@@ -73,6 +73,13 @@ The editor window preserves the original V1d canvas geometry and interaction mod
 - dragging a selected clip body moves the entire selection
 - clip move, resize-left, and resize-right remain mutually exclusive
 - clip snapping and last-valid-hovered-track behavior remain active during moves
+- selected track and category outlines stay outside the clip bodies
+- the white playhead can be clicked and dragged from the timestamp ruler
+- clip and category movement can snap to the playhead
+- Add Clip uses the playhead for an explicit selection, or the hovered timeline cursor otherwise
+- Ctrl/Cmd + C/V/D copy, paste, and duplicate categories, tracks, and clips
+- disabled categories darken their activity box and child tracks; disabled tracks darken their clips
+- project Settings and Theme assets can be activated and pinged from the editor toolbar
 
 Category proportional resize is intentionally deferred.
 

@@ -25,6 +25,34 @@ namespace Beardmage.ActionTimeline.Editor
                 : (Action ? Mathf.Max(0f, Action.NominalDuration) : 0f);
         }
 
+        private enum ClipboardKind
+        {
+            None,
+            Category,
+            Track,
+            Clips
+        }
+
+        private sealed class ClipboardPayload
+        {
+            public ClipboardKind Kind;
+            public string Name;
+            public bool IsEnabled;
+            public bool IsExpanded;
+            public int SourceCategoryIndex = -1;
+            public int SourceTrackIndex = -1;
+            public float SourcePrimaryStartTime;
+            public readonly List<ClipSnapshot> Clips = new List<ClipSnapshot>(8);
+            public readonly List<ClipboardTrack> Tracks = new List<ClipboardTrack>(4);
+        }
+
+        private sealed class ClipboardTrack
+        {
+            public string Name;
+            public bool IsEnabled;
+            public readonly List<ClipSnapshot> Clips = new List<ClipSnapshot>(8);
+        }
+
         private readonly struct TrackAddress
         {
             public TrackAddress(int categoryIndex, int localTrackIndex)
@@ -96,6 +124,7 @@ namespace Beardmage.ActionTimeline.Editor
         private readonly TimelineValidator validator = new TimelineValidator();
         private readonly List<VisibleRow> visibleRows = new List<VisibleRow>(16);
         private readonly List<ClipSnapshot> activeDragSnapshots = new List<ClipSnapshot>(8);
+        private ClipboardPayload clipboardPayload;
         private TimelineEditorState state;
         private TimelinePointerContext currentPointerContext;
         private TimelineEditorThemeAsset timelineTheme;
@@ -239,6 +268,12 @@ namespace Beardmage.ActionTimeline.Editor
                 return;
             }
 
+            if (GUILayout.Button("Settings", EditorStyles.toolbarButton, GUILayout.Width(62f)))
+                PingOrCreateSettingsAsset();
+
+            if (GUILayout.Button("Theme", EditorStyles.toolbarButton, GUILayout.Width(52f)))
+                PingOrCreateThemeAsset();
+
             if (GUILayout.Button("Create New Timeline", EditorStyles.toolbarButton, GUILayout.Width(125f)))
             {
                 ActionTimelineAsset created = ActionTimelineAssetCreationUtility.CreateAndSelectNewTimeline(ActionTimelineAssetCreationUtility.DefaultTimelineDirectory);
@@ -290,6 +325,24 @@ namespace Beardmage.ActionTimeline.Editor
 
             GUI.enabled = true;
             EditorGUILayout.EndHorizontal();
+        }
+
+        private void PingOrCreateSettingsAsset()
+        {
+            TimelineEditorSettingsAsset settings = TimelineEditorConfigLocator.GetOrCreateAndActivateSettings();
+            RefreshEditorConfig();
+            if (settings)
+                EditorAssetLinkUtility.Ping(settings);
+            Repaint();
+        }
+
+        private void PingOrCreateThemeAsset()
+        {
+            TimelineEditorThemeAsset theme = TimelineEditorConfigLocator.GetOrCreateAndActivateTheme();
+            RefreshEditorConfig();
+            if (theme)
+                EditorAssetLinkUtility.Ping(theme);
+            Repaint();
         }
 
         private void DrawPixelsPerSecondPopup()
@@ -381,14 +434,17 @@ namespace Beardmage.ActionTimeline.Editor
                 return;
 
             bool isSelected = state.HasCategorySelection && state.SelectedCategoryIndex == categoryIndex;
-            EditorGUI.DrawRect(rowRect, TimelineEditorStyles.CategoryRowColor);
-            if (isSelected)
-                EditorGUI.DrawRect(new Rect(rowRect.x, rowRect.y, 3f, rowRect.height), TimelineEditorStyles.ClipSelectedColor);
-
             SerializedProperty expandedProperty = categoryProperty.FindPropertyRelative("isExpanded");
             SerializedProperty enabledProperty = categoryProperty.FindPropertyRelative("isEnabled");
             SerializedProperty nameProperty = categoryProperty.FindPropertyRelative("categoryName");
             SerializedProperty tracksProperty = categoryProperty.FindPropertyRelative("tracks");
+            bool categoryEnabled = enabledProperty == null || enabledProperty.boolValue;
+            Color categoryRowColor = categoryEnabled
+                ? TimelineEditorStyles.CategoryRowColor
+                : Color.Lerp(TimelineEditorStyles.CategoryRowColor, Color.black, 0.28f);
+            EditorGUI.DrawRect(rowRect, categoryRowColor);
+            if (isSelected)
+                EditorGUI.DrawRect(new Rect(rowRect.x, rowRect.y, 4f, rowRect.height), TimelineEditorStyles.ClipSelectedColor);
 
             Rect foldoutRect = new Rect(rowRect.x + 5f, rowRect.y + 4f, 16f, 18f);
             Rect toggleRect = new Rect(rowRect.x + 23f, rowRect.y + 5f, 16f, 16f);
@@ -435,6 +491,11 @@ namespace Beardmage.ActionTimeline.Editor
                 GenericMenu menu = new GenericMenu();
                 menu.AddItem(new GUIContent("Add Track"), false, () => AddTrackToCategory(categoryIndex));
                 menu.AddSeparator(string.Empty);
+                menu.AddItem(new GUIContent("Duplicate Category"), false, () =>
+                {
+                    state.SelectCategory(categoryIndex);
+                    DuplicateSelectionAtPointer();
+                });
                 menu.AddItem(new GUIContent("Delete Category"), false, () =>
                 {
                     state.SelectCategory(categoryIndex);
@@ -452,26 +513,46 @@ namespace Beardmage.ActionTimeline.Editor
 
             bool isSelected = (state.SelectionKind == TimelineSelectionKind.Track && state.SelectedTrackIndex == trackIndex) ||
                               (state.SelectionKind == TimelineSelectionKind.Clip && state.SelectedClipCount == 1 && state.SelectedTrackIndex == trackIndex);
-            EditorGUI.DrawRect(rowRect, TimelineEditorStyles.TrackChildRowColor);
+            TrackAddress address = GetTrackAddress(trackIndex);
+            SerializedProperty ownerCategoryProperty = address.IsValid ? GetCategoryProperty(address.CategoryIndex) : null;
+            SerializedProperty ownerEnabledProperty = ownerCategoryProperty != null ? ownerCategoryProperty.FindPropertyRelative("isEnabled") : null;
+            bool ownerCategoryEnabled = ownerEnabledProperty == null || ownerEnabledProperty.boolValue;
+            Color trackRowColor = ownerCategoryEnabled
+                ? TimelineEditorStyles.TrackChildRowColor
+                : Color.Lerp(TimelineEditorStyles.TrackChildRowColor, Color.black, 0.30f);
+            EditorGUI.DrawRect(rowRect, trackRowColor);
             if (isSelected)
-                EditorGUI.DrawRect(new Rect(rowRect.x, rowRect.y, 3f, rowRect.height), TimelineEditorStyles.ClipSelectedColor);
+                EditorGUI.DrawRect(new Rect(rowRect.x, rowRect.y, 4f, rowRect.height), TimelineEditorStyles.ClipSelectedColor);
 
             SerializedProperty enabledProperty = trackProperty.FindPropertyRelative("isEnabled");
             SerializedProperty nameProperty = trackProperty.FindPropertyRelative("trackName");
             SerializedProperty clipsProperty = trackProperty.FindPropertyRelative("clips");
 
-            Rect toggleRect = new Rect(rowRect.x + 18f, rowRect.y + 5f, 16f, 16f);
-            Rect labelRect = new Rect(rowRect.x + 38f, rowRect.y, rowRect.width - 72f, rowRect.height);
+            Rect treeVerticalRect = new Rect(rowRect.x + 11f, rowRect.y, 1f, rowRect.height);
+            Rect treeHorizontalRect = new Rect(rowRect.x + 11f, rowRect.y + (rowRect.height * 0.5f), 12f, 1f);
+            EditorGUI.DrawRect(treeVerticalRect, new Color(1f, 1f, 1f, ownerCategoryEnabled ? 0.22f : 0.10f));
+            EditorGUI.DrawRect(treeHorizontalRect, new Color(1f, 1f, 1f, ownerCategoryEnabled ? 0.22f : 0.10f));
+
+            Rect toggleRect = new Rect(rowRect.x + 24f, rowRect.y + 5f, 16f, 16f);
+            Rect labelRect = new Rect(rowRect.x + 45f, rowRect.y, rowRect.width - 79f, rowRect.height);
             Rect badgeRect = new Rect(rowRect.xMax - 28f, rowRect.y + 5f, 20f, 16f);
+
+            EditorGUI.DrawRect(badgeRect, isSelected
+                ? TimelineEditorStyles.SelectionOutlineColor
+                : new Color(1f, 1f, 1f, ownerCategoryEnabled ? 0.07f : 0.03f));
 
             EditorGUI.BeginChangeCheck();
             bool newEnabled = EditorGUI.Toggle(toggleRect, enabledProperty.boolValue);
             if (EditorGUI.EndChangeCheck())
+            {
                 enabledProperty.boolValue = newEnabled;
+                if (newEnabled && ownerEnabledProperty != null && !ownerEnabledProperty.boolValue)
+                    ownerEnabledProperty.boolValue = true;
+            }
 
             string trackName = string.IsNullOrWhiteSpace(nameProperty.stringValue) ? $"Track {trackIndex + 1}" : nameProperty.stringValue;
             GUI.Label(labelRect, trackName, TimelineEditorStyles.TrackChildLabelStyle);
-            GUI.Label(badgeRect, (clipsProperty != null ? clipsProperty.arraySize : 0).ToString(), TimelineEditorStyles.MiniBadgeStyle);
+            GUI.Label(badgeRect, (clipsProperty != null ? clipsProperty.arraySize : 0).ToString(), TimelineEditorStyles.TrackChildBadgeStyle);
 
             if (HasTrackValidationIssue(validationResults, trackIndex))
                 EditorGUI.DrawRect(new Rect(rowRect.xMax - 6f, rowRect.y + 4f, 3f, rowRect.height - 8f), TimelineEditorStyles.WarningColor);
@@ -497,7 +578,14 @@ namespace Beardmage.ActionTimeline.Editor
                 {
                     ClearEditorKeyboardFocusIfConfigured();
                     state.SelectTrack(trackIndex);
-                    AddClipToTrack(trackIndex, 0f);
+                    AddClipToTrack(trackIndex, GetPreferredAddClipStartTime(true));
+                });
+                menu.AddSeparator(string.Empty);
+                menu.AddItem(new GUIContent("Duplicate Track"), false, () =>
+                {
+                    ClearEditorKeyboardFocusIfConfigured();
+                    state.SelectTrack(trackIndex);
+                    DuplicateSelectionAtPointer();
                 });
                 menu.AddSeparator(string.Empty);
                 menu.AddItem(new GUIContent("Delete Track"), false, () =>
@@ -549,6 +637,13 @@ namespace Beardmage.ActionTimeline.Editor
             state.CanvasScroll = GUI.BeginScrollView(scrollRect, state.CanvasScroll, contentRect);
             currentPointerContext = BuildPointerContext(contentRect);
             state.LastMouseCanvasPosition = currentPointerContext.CanvasMousePosition;
+            if (currentPointerContext.IsInsideCanvas)
+            {
+                state.LastMouseTime = currentPointerContext.TimeAtMouse;
+                state.LastHoveredTrackIndex = currentPointerContext.HoveredLaneIndex;
+                state.LastHoveredRowIndex = currentPointerContext.HoveredRowIndex;
+                state.HasLastMouseTimelineContext = true;
+            }
 
             if (TryHandleImmediateCanvasInteractionBeforeDraw(trackCount))
             {
@@ -589,6 +684,9 @@ namespace Beardmage.ActionTimeline.Editor
                 DrawCategoryManipulationPreview();
             }
 
+            DrawSelectionOutlines(contentRect);
+            DrawPlayhead(contentRect);
+
             HandleCanvasBackgroundSelection(clickedElement, currentPointerContext);
             GUI.EndScrollView();
         }
@@ -596,6 +694,7 @@ namespace Beardmage.ActionTimeline.Editor
         private void DrawTimeRuler(Rect rect)
         {
             EditorGUI.DrawRect(rect, TimelineEditorStyles.RulerBackground);
+            HandlePlayheadRulerInteraction(rect);
             float visibleStartTime = state.CanvasScroll.x / Mathf.Max(0.0001f, state.PixelsPerSecond);
             float visibleEndTime = (state.CanvasScroll.x + rect.width) / Mathf.Max(0.0001f, state.PixelsPerSecond);
             float majorStep = state.PixelsPerSecond >= 150f ? 0.5f : 1f;
@@ -607,6 +706,75 @@ namespace Beardmage.ActionTimeline.Editor
                 EditorGUI.DrawRect(new Rect(x, rect.y, 1f, rect.height), TimelineEditorStyles.MajorGridLineColor);
                 GUI.Label(new Rect(x + 4f, rect.y + 2f, 48f, rect.height - 4f), TimelineDurationUtility.FormatSeconds(time), EditorStyles.miniLabel);
             }
+
+            float playheadX = rect.x + (state.PlayheadTime * state.PixelsPerSecond) - state.CanvasScroll.x;
+            if (playheadX >= rect.x - 1f && playheadX <= rect.xMax + 1f)
+                EditorGUI.DrawRect(new Rect(playheadX, rect.y, 2f, rect.height), TimelineEditorStyles.PlayheadColor);
+        }
+
+        private void HandlePlayheadRulerInteraction(Rect rulerRect)
+        {
+            Event current = Event.current;
+            if (current.type == EventType.MouseDown && current.button == 0 && rulerRect.Contains(current.mousePosition))
+            {
+                state.BeginPlayheadDrag(GetTimeFromRulerMouse(current.mousePosition.x, rulerRect));
+                current.Use();
+                Repaint();
+                return;
+            }
+
+            if (state.IsDraggingPlayhead && current.type == EventType.MouseDrag)
+            {
+                state.SetPlayheadTime(GetTimeFromRulerMouse(current.mousePosition.x, rulerRect));
+                current.Use();
+                Repaint();
+                return;
+            }
+
+            if (state.IsDraggingPlayhead && current.type == EventType.MouseUp && current.button == 0)
+            {
+                state.SetPlayheadTime(GetTimeFromRulerMouse(current.mousePosition.x, rulerRect));
+                state.EndPlayheadDrag();
+                current.Use();
+                Repaint();
+            }
+        }
+
+        private float GetTimeFromRulerMouse(float mouseX, Rect rulerRect)
+        {
+            return Mathf.Max(0f, (mouseX - rulerRect.x + state.CanvasScroll.x) / Mathf.Max(0.0001f, state.PixelsPerSecond));
+        }
+
+        private void DrawPlayhead(Rect contentRect)
+        {
+            float x = state.PlayheadTime * state.PixelsPerSecond;
+            if (x < 0f || x > contentRect.width)
+                return;
+            EditorGUI.DrawRect(new Rect(x, 0f, 2f, contentRect.height), TimelineEditorStyles.PlayheadColor);
+        }
+
+        private void DrawSelectionOutlines(Rect contentRect)
+        {
+            int firstRow = -1;
+            int lastRow = -1;
+            if (state.HasCategorySelection)
+            {
+                firstRow = GetVisibleRowIndexForCategory(state.SelectedCategoryIndex);
+                lastRow = GetLastVisibleRowIndexForCategory(state.SelectedCategoryIndex);
+            }
+            else if (state.HasTrackSelection || (state.HasClipSelection && state.SelectedClipCount == 1))
+            {
+                firstRow = GetVisibleRowIndexForTrack(state.SelectedTrackIndex);
+                lastRow = firstRow;
+            }
+
+            if (firstRow < 0 || lastRow < firstRow)
+                return;
+
+            float top = (firstRow * TimelineEditorStyles.LaneHeight) + 1f;
+            float bottom = ((lastRow + 1) * TimelineEditorStyles.LaneHeight) - 2f;
+            EditorGUI.DrawRect(new Rect(0f, top, contentRect.width, 1f), TimelineEditorStyles.SelectionOutlineColor);
+            EditorGUI.DrawRect(new Rect(0f, bottom, contentRect.width, 1f), TimelineEditorStyles.SelectionOutlineColor);
         }
 
         private void DrawCanvasBackground(Rect contentRect, int rowCount)
@@ -655,11 +823,13 @@ namespace Beardmage.ActionTimeline.Editor
 
             bool isSelected = state.HasCategorySelection && state.SelectedCategoryIndex == categoryIndex;
             bool isManipulated = state.IsDraggingCategory && state.DragCategoryIndex == categoryIndex;
+            bool isEnabled = IsCategoryEnabled(categoryIndex);
             if (!isManipulated)
             {
-                EditorGUI.DrawRect(activityRect, isSelected
-                    ? TimelineEditorStyles.CategoryActivitySelectedColor
-                    : TimelineEditorStyles.CategoryActivityColor);
+                Color activityColor = isEnabled
+                    ? (isSelected ? TimelineEditorStyles.CategoryActivitySelectedColor : TimelineEditorStyles.CategoryActivityColor)
+                    : Color.Lerp(TimelineEditorStyles.CategoryActivityColor, Color.black, 0.58f);
+                EditorGUI.DrawRect(activityRect, activityColor);
                 EditorGUI.DrawRect(new Rect(activityRect.x, activityRect.y, activityRect.width, 1f), TimelineEditorStyles.ClipBorderColor);
                 EditorGUI.DrawRect(new Rect(activityRect.x, activityRect.yMax - 1f, activityRect.width, 1f), TimelineEditorStyles.ClipBorderColor);
             }
@@ -740,7 +910,8 @@ namespace Beardmage.ActionTimeline.Editor
             float durationOverride = Mathf.Max(0f, clipProperty.FindPropertyRelative("durationOverride").floatValue);
             float logicalDuration = useDurationOverride ? durationOverride : (action ? Mathf.Max(0f, action.NominalDuration) : 0f);
 
-            Rect clipRect = TimelineRectUtility.GetClipRect(startTime, logicalDuration, state.PixelsPerSecond, 0f, laneRect.y, laneRect.height, TimelineEditorStyles.MinClipVisualWidth);
+            float clipPadding = Mathf.Min(TimelineEditorStyles.ClipVerticalPadding, Mathf.Max(0f, laneRect.height * 0.5f - 1f));
+            Rect clipRect = TimelineRectUtility.GetClipRect(startTime, logicalDuration, state.PixelsPerSecond, 0f, laneRect.y + clipPadding, laneRect.height - (clipPadding * 2f), TimelineEditorStyles.MinClipVisualWidth);
             Rect leftResizeRect = new Rect(clipRect.x, clipRect.y, Mathf.Min(ClipResizeHandleWidth, clipRect.width * 0.5f), clipRect.height);
             Rect rightResizeRect = new Rect(clipRect.xMax - Mathf.Min(ClipResizeHandleWidth, clipRect.width * 0.5f), clipRect.y, Mathf.Min(ClipResizeHandleWidth, clipRect.width * 0.5f), clipRect.height);
 
@@ -748,8 +919,9 @@ namespace Beardmage.ActionTimeline.Editor
             bool isPrimary = state.IsPrimaryClip(trackIndex, clipIndex);
             bool hasClipError = HasClipValidationIssue(validationResults, trackIndex, clipIndex, TimelineValidationSeverity.Error);
             bool hasClipWarning = HasClipValidationIssue(validationResults, trackIndex, clipIndex, TimelineValidationSeverity.Warning);
+            bool isDisabled = !IsTrackEnabled(trackIndex);
 
-            Color clipColor = ResolveClipBackgroundColor(action, isPrimary, isSelected, hasClipError);
+            Color clipColor = ResolveClipBackgroundColor(action, isPrimary, isSelected, hasClipError, isDisabled);
             EditorGUI.DrawRect(clipRect, clipColor);
             EditorGUI.DrawRect(new Rect(clipRect.x, clipRect.y, clipRect.width, 1f), TimelineEditorStyles.ClipBorderColor);
             EditorGUI.DrawRect(new Rect(clipRect.x, clipRect.yMax - 1f, clipRect.width, 1f), TimelineEditorStyles.ClipBorderColor);
@@ -1067,6 +1239,9 @@ namespace Beardmage.ActionTimeline.Editor
 
         private float GetSnappedGroupTimeDelta(float rawDelta, int trackDelta)
         {
+            if (!ActiveSettings.EnableSnap)
+                return rawDelta;
+
             float snapThresholdTime = SnapThresholdPixels / Mathf.Max(0.0001f, state.PixelsPerSecond);
             float bestDelta = rawDelta;
             float bestDistance = float.MaxValue;
@@ -1092,6 +1267,9 @@ namespace Beardmage.ActionTimeline.Editor
                     TryAcceptGroupSnapCandidate(otherEnd - moving.StartTime, rawDelta, trackDelta, snapThresholdTime, ref bestDelta, ref bestDistance);
                     TryAcceptGroupSnapCandidate(otherStart - (moving.StartTime + moving.EffectiveDuration), rawDelta, trackDelta, snapThresholdTime, ref bestDelta, ref bestDistance);
                 }
+
+                TryAcceptGroupSnapCandidate(state.PlayheadTime - moving.StartTime, rawDelta, trackDelta, snapThresholdTime, ref bestDelta, ref bestDistance);
+                TryAcceptGroupSnapCandidate(state.PlayheadTime - (moving.StartTime + moving.EffectiveDuration), rawDelta, trackDelta, snapThresholdTime, ref bestDelta, ref bestDistance);
             }
 
             return bestDelta;
@@ -1186,6 +1364,9 @@ namespace Beardmage.ActionTimeline.Editor
 
         private float GetSnappedStartTimeForTrack(int trackIndex, float rawStartTime, float movingDuration)
         {
+            if (!ActiveSettings.EnableSnap)
+                return rawStartTime;
+
             SerializedProperty trackProperty = GetTrackProperty(trackIndex);
             if (trackProperty == null)
                 return rawStartTime;
@@ -1219,11 +1400,16 @@ namespace Beardmage.ActionTimeline.Editor
                     TryAcceptStartSnapCandidate(trackIndex, rawStartTime, movingDuration, Mathf.Max(0f, otherEnd), snapThresholdTime, ref bestSnappedStart, ref bestDistance);
             }
 
+            TryAcceptStartSnapCandidate(trackIndex, rawStartTime, movingDuration, Mathf.Max(0f, state.PlayheadTime), snapThresholdTime, ref bestSnappedStart, ref bestDistance);
+
             return bestSnappedStart;
         }
 
         private float GetSnappedEndTimeForTrack(int trackIndex, float rawEndTime, float fixedStartTime)
         {
+            if (!ActiveSettings.EnableSnap)
+                return rawEndTime;
+
             SerializedProperty trackProperty = GetTrackProperty(trackIndex);
             if (trackProperty == null)
                 return rawEndTime;
@@ -1259,6 +1445,11 @@ namespace Beardmage.ActionTimeline.Editor
                 bestSnappedEnd = otherStart;
             }
 
+            float playheadDistance = Mathf.Abs(state.PlayheadTime - rawEndTime);
+            if (playheadDistance <= snapThresholdTime && playheadDistance < bestDistance &&
+                CanPlaceSourceClipAt(trackIndex, fixedStartTime, Mathf.Max(0f, state.PlayheadTime - fixedStartTime)))
+                bestSnappedEnd = state.PlayheadTime;
+
             return bestSnappedEnd;
         }
 
@@ -1292,13 +1483,14 @@ namespace Beardmage.ActionTimeline.Editor
                         continue;
 
                     float previewStart = snapshot.StartTime + activeGroupTimeDelta;
+                    float clipPadding = Mathf.Min(TimelineEditorStyles.ClipVerticalPadding, Mathf.Max(0f, TimelineEditorStyles.LaneHeight * 0.5f - 1f));
                     Rect previewRect = TimelineRectUtility.GetClipRect(
                         previewStart,
                         snapshot.EffectiveDuration,
                         state.PixelsPerSecond,
                         0f,
-                        rowIndex * TimelineEditorStyles.LaneHeight,
-                        TimelineEditorStyles.LaneHeight,
+                        (rowIndex * TimelineEditorStyles.LaneHeight) + clipPadding,
+                        TimelineEditorStyles.LaneHeight - (clipPadding * 2f),
                         TimelineEditorStyles.MinClipVisualWidth);
 
                     EditorGUI.DrawRect(previewRect, previewColor);
@@ -1316,13 +1508,14 @@ namespace Beardmage.ActionTimeline.Editor
             if (previewRowIndex < 0)
                 return;
 
+            float resizedClipPadding = Mathf.Min(TimelineEditorStyles.ClipVerticalPadding, Mathf.Max(0f, TimelineEditorStyles.LaneHeight * 0.5f - 1f));
             Rect resizedPreviewRect = TimelineRectUtility.GetClipRect(
                 state.DragPreviewStartTime,
                 state.DragPreviewDuration,
                 state.PixelsPerSecond,
                 0f,
-                previewRowIndex * TimelineEditorStyles.LaneHeight,
-                TimelineEditorStyles.LaneHeight,
+                (previewRowIndex * TimelineEditorStyles.LaneHeight) + resizedClipPadding,
+                TimelineEditorStyles.LaneHeight - (resizedClipPadding * 2f),
                 TimelineEditorStyles.MinClipVisualWidth);
 
             EditorGUI.DrawRect(resizedPreviewRect, previewColor);
@@ -1339,7 +1532,16 @@ namespace Beardmage.ActionTimeline.Editor
                 return;
 
             float rawStart = currentPointerContext.TimeAtMouse - state.CategoryGrabOffsetTime;
-            state.SetCategoryPreviewStart(Mathf.Max(0f, rawStart));
+            state.SetCategoryPreviewStart(GetSnappedTimeToPlayhead(Mathf.Max(0f, rawStart)));
+        }
+
+        private float GetSnappedTimeToPlayhead(float rawTime)
+        {
+            if (!ActiveSettings.EnableSnap)
+                return rawTime;
+
+            float threshold = SnapThresholdPixels / Mathf.Max(0.0001f, state.PixelsPerSecond);
+            return Mathf.Abs(state.PlayheadTime - rawTime) <= threshold ? state.PlayheadTime : rawTime;
         }
 
         private void DrawCategoryManipulationPreview()
@@ -1970,7 +2172,7 @@ namespace Beardmage.ActionTimeline.Editor
             using (new EditorGUILayout.HorizontalScope())
             {
                 if (GUILayout.Button("Add Clip"))
-                    AddClipToTrack(state.SelectedTrackIndex, 0f);
+                    AddClipToTrack(state.SelectedTrackIndex, GetPreferredAddClipStartTime(true));
                 if (GUILayout.Button("Delete Track"))
                     DeleteSelection();
             }
@@ -2072,6 +2274,304 @@ namespace Beardmage.ActionTimeline.Editor
             });
         }
 
+        private void CopySelectionToClipboard()
+        {
+            if (!state.HasTimeline)
+                return;
+
+            if (state.HasCategorySelection)
+            {
+                SerializedProperty categoryProperty = GetCategoryProperty(state.SelectedCategoryIndex);
+                if (categoryProperty == null)
+                    return;
+
+                ClipboardPayload payload = new ClipboardPayload
+                {
+                    Kind = ClipboardKind.Category,
+                    Name = categoryProperty.FindPropertyRelative("categoryName").stringValue,
+                    IsEnabled = categoryProperty.FindPropertyRelative("isEnabled").boolValue,
+                    IsExpanded = categoryProperty.FindPropertyRelative("isExpanded").boolValue,
+                    SourceCategoryIndex = state.SelectedCategoryIndex
+                };
+                SerializedProperty tracksProperty = categoryProperty.FindPropertyRelative("tracks");
+                int trackCount = tracksProperty != null ? tracksProperty.arraySize : 0;
+                for (int localTrackIndex = 0; localTrackIndex < trackCount; localTrackIndex++)
+                    payload.Tracks.Add(CreateClipboardTrack(tracksProperty.GetArrayElementAtIndex(localTrackIndex), GetFlatTrackIndex(state.SelectedCategoryIndex, localTrackIndex)));
+                clipboardPayload = payload;
+                return;
+            }
+
+            if (state.HasTrackSelection)
+            {
+                SerializedProperty trackProperty = GetTrackProperty(state.SelectedTrackIndex);
+                if (trackProperty == null)
+                    return;
+
+                ClipboardPayload payload = new ClipboardPayload
+                {
+                    Kind = ClipboardKind.Track,
+                    Name = trackProperty.FindPropertyRelative("trackName").stringValue,
+                    IsEnabled = trackProperty.FindPropertyRelative("isEnabled").boolValue,
+                    SourceTrackIndex = state.SelectedTrackIndex
+                };
+                SerializedProperty clipsProperty = trackProperty.FindPropertyRelative("clips");
+                int clipCount = clipsProperty != null ? clipsProperty.arraySize : 0;
+                for (int clipIndex = 0; clipIndex < clipCount; clipIndex++)
+                    payload.Clips.Add(CreateSnapshotFromProperty(clipsProperty.GetArrayElementAtIndex(clipIndex), state.SelectedTrackIndex, clipIndex));
+                clipboardPayload = payload;
+                return;
+            }
+
+            if (!state.HasClipSelection)
+                return;
+
+            ClipboardPayload clipsPayload = new ClipboardPayload
+            {
+                Kind = ClipboardKind.Clips,
+                SourceTrackIndex = state.SelectedTrackIndex
+            };
+            SerializedProperty primaryProperty = GetSelectedClipProperty();
+            clipsPayload.SourcePrimaryStartTime = GetClipStartTime(primaryProperty);
+            foreach (TimelineClipKey key in state.SelectedClips)
+            {
+                SerializedProperty clipProperty = GetClipProperty(key.TrackIndex, key.ClipIndex);
+                if (clipProperty != null)
+                    clipsPayload.Clips.Add(CreateSnapshotFromProperty(clipProperty, key.TrackIndex, key.ClipIndex));
+            }
+            clipboardPayload = clipsPayload;
+        }
+
+        private ClipboardTrack CreateClipboardTrack(SerializedProperty trackProperty, int flatTrackIndex)
+        {
+            ClipboardTrack clipboardTrack = new ClipboardTrack
+            {
+                Name = trackProperty.FindPropertyRelative("trackName").stringValue,
+                IsEnabled = trackProperty.FindPropertyRelative("isEnabled").boolValue
+            };
+            SerializedProperty clipsProperty = trackProperty.FindPropertyRelative("clips");
+            int clipCount = clipsProperty != null ? clipsProperty.arraySize : 0;
+            for (int clipIndex = 0; clipIndex < clipCount; clipIndex++)
+                clipboardTrack.Clips.Add(CreateSnapshotFromProperty(clipsProperty.GetArrayElementAtIndex(clipIndex), flatTrackIndex, clipIndex));
+            return clipboardTrack;
+        }
+
+        private void PasteClipboardAtPointer()
+        {
+            if (clipboardPayload == null || clipboardPayload.Kind == ClipboardKind.None)
+                return;
+
+            switch (clipboardPayload.Kind)
+            {
+                case ClipboardKind.Category:
+                    PasteCategoryClipboard();
+                    break;
+                case ClipboardKind.Track:
+                    PasteTrackClipboard();
+                    break;
+                case ClipboardKind.Clips:
+                    PasteClipsClipboard();
+                    break;
+            }
+        }
+
+        private void DuplicateSelectionAtPointer()
+        {
+            CopySelectionToClipboard();
+            PasteClipboardAtPointer();
+        }
+
+        private int GetPreferredPasteTrackIndex()
+        {
+            int trackCount = GetSerializedTrackCount();
+            if (trackCount <= 0)
+                return -1;
+            if (state.HasLastMouseTimelineContext && state.LastHoveredTrackIndex >= 0)
+                return Mathf.Clamp(state.LastHoveredTrackIndex, 0, trackCount - 1);
+            if (state.HasLastMouseTimelineContext)
+            {
+                int nearestTrack = GetNearestTrackToVisibleRow(state.LastHoveredRowIndex);
+                if (nearestTrack >= 0)
+                    return nearestTrack;
+            }
+            if (state.HasTrackSelection || state.HasClipSelection)
+                return Mathf.Clamp(state.SelectedTrackIndex, 0, trackCount - 1);
+            return 0;
+        }
+
+        private int GetNearestTrackToVisibleRow(int rowIndex)
+        {
+            if (rowIndex < 0 || rowIndex >= visibleRows.Count)
+                return -1;
+
+            for (int distance = 0; distance < visibleRows.Count; distance++)
+            {
+                int above = rowIndex - distance;
+                if (above >= 0 && visibleRows[above].IsTrack)
+                    return visibleRows[above].FlatTrackIndex;
+
+                int below = rowIndex + distance;
+                if (distance > 0 && below < visibleRows.Count && visibleRows[below].IsTrack)
+                    return visibleRows[below].FlatTrackIndex;
+            }
+
+            return -1;
+        }
+
+        private float GetPreferredPasteTime()
+        {
+            return state.HasLastMouseTimelineContext ? Mathf.Max(0f, state.LastMouseTime) : state.PlayheadTime;
+        }
+
+        private void PasteClipsClipboard()
+        {
+            if (clipboardPayload.Clips.Count <= 0)
+                return;
+
+            int baseTrackIndex = GetPreferredPasteTrackIndex();
+            if (baseTrackIndex < 0)
+            {
+                AddTrack();
+                baseTrackIndex = GetPreferredPasteTrackIndex();
+            }
+            if (baseTrackIndex < 0)
+                return;
+
+            float timeDelta = GetPreferredPasteTime() - clipboardPayload.SourcePrimaryStartTime;
+            Undo.RecordObject(state.Timeline, clipboardPayload.Clips.Count > 1 ? "Paste Timeline Clips" : "Paste Timeline Clip");
+            List<TimelineClipKey> pastedKeys = new List<TimelineClipKey>(clipboardPayload.Clips.Count);
+            TimelineClipKey primaryKey = default;
+            for (int index = 0; index < clipboardPayload.Clips.Count; index++)
+            {
+                ClipSnapshot snapshot = CloneSnapshot(clipboardPayload.Clips[index]);
+                int relativeTrack = snapshot.OriginalTrackIndex - clipboardPayload.SourceTrackIndex;
+                int targetTrackIndex = baseTrackIndex + relativeTrack;
+                if (targetTrackIndex < 0 || targetTrackIndex >= GetSerializedTrackCount())
+                    targetTrackIndex = baseTrackIndex;
+                SerializedProperty targetTrack = GetTrackProperty(targetTrackIndex);
+                SerializedProperty clipsProperty = targetTrack != null ? targetTrack.FindPropertyRelative("clips") : null;
+                if (clipsProperty == null)
+                    continue;
+                snapshot.StartTime = Mathf.Max(0f, snapshot.StartTime + timeDelta);
+                int newIndex = clipsProperty.arraySize;
+                clipsProperty.arraySize++;
+                ApplySnapshotToClipProperty(snapshot, clipsProperty.GetArrayElementAtIndex(newIndex));
+                TimelineClipKey key = new TimelineClipKey(targetTrackIndex, newIndex);
+                pastedKeys.Add(key);
+                if (snapshot.OriginalTrackIndex == state.SelectedTrackIndex && snapshot.OriginalClipIndex == state.SelectedClipIndex)
+                    primaryKey = key;
+            }
+
+            state.TimelineSerializedObject.ApplyModifiedProperties();
+            state.TimelineSerializedObject.Update();
+            EditorUtility.SetDirty(state.Timeline);
+            TimelineActionUsageIndex.Invalidate();
+            state.ReplaceClipSelection(pastedKeys, primaryKey);
+            Repaint();
+        }
+
+        private void PasteTrackClipboard()
+        {
+            int categoryIndex = ResolveCategoryIndexForNewTrack();
+            int newTrackIndex = AddTrackInternal((clipboardPayload.Name ?? "Track") + " Copy", categoryIndex);
+            if (newTrackIndex < 0)
+                return;
+
+            SerializedProperty newTrackProperty = GetTrackProperty(newTrackIndex);
+            newTrackProperty.FindPropertyRelative("isEnabled").boolValue = clipboardPayload.IsEnabled;
+            SerializedProperty clipsProperty = newTrackProperty.FindPropertyRelative("clips");
+            float anchor = GetClipboardAnchorTime(clipboardPayload.Clips);
+            float timeDelta = clipboardPayload.Clips.Count > 0 ? GetPreferredPasteTime() - anchor : 0f;
+            for (int index = 0; index < clipboardPayload.Clips.Count; index++)
+            {
+                ClipSnapshot snapshot = CloneSnapshot(clipboardPayload.Clips[index]);
+                snapshot.StartTime = Mathf.Max(0f, snapshot.StartTime + timeDelta);
+                int newClipIndex = clipsProperty.arraySize;
+                clipsProperty.arraySize++;
+                ApplySnapshotToClipProperty(snapshot, clipsProperty.GetArrayElementAtIndex(newClipIndex));
+            }
+
+            state.TimelineSerializedObject.ApplyModifiedProperties();
+            state.TimelineSerializedObject.Update();
+            EditorUtility.SetDirty(state.Timeline);
+            TimelineActionUsageIndex.Invalidate();
+            state.SelectTrack(newTrackIndex);
+            RebuildVisibleRows();
+            Repaint();
+        }
+
+        private void PasteCategoryClipboard()
+        {
+            SerializedProperty categoriesProperty = GetCategoriesProperty();
+            if (categoriesProperty == null)
+                return;
+
+            Undo.RecordObject(state.Timeline, "Paste Timeline Category");
+            int categoryIndex = categoriesProperty.arraySize;
+            categoriesProperty.arraySize++;
+            SerializedProperty categoryProperty = categoriesProperty.GetArrayElementAtIndex(categoryIndex);
+            ResetCategoryProperty(categoryProperty, (clipboardPayload.Name ?? "Category") + " Copy", false);
+            categoryProperty.FindPropertyRelative("isEnabled").boolValue = clipboardPayload.IsEnabled;
+            categoryProperty.FindPropertyRelative("isExpanded").boolValue = clipboardPayload.IsExpanded;
+            SerializedProperty tracksProperty = categoryProperty.FindPropertyRelative("tracks");
+            float anchor = GetClipboardAnchorTimeFromTracks(clipboardPayload.Tracks);
+            float timeDelta = clipboardPayload.Tracks.Count > 0 ? GetPreferredPasteTime() - anchor : 0f;
+            for (int trackIndex = 0; trackIndex < clipboardPayload.Tracks.Count; trackIndex++)
+            {
+                ClipboardTrack sourceTrack = clipboardPayload.Tracks[trackIndex];
+                tracksProperty.arraySize++;
+                SerializedProperty targetTrack = tracksProperty.GetArrayElementAtIndex(trackIndex);
+                ResetTrackProperty(targetTrack, sourceTrack.Name);
+                targetTrack.FindPropertyRelative("isEnabled").boolValue = sourceTrack.IsEnabled;
+                SerializedProperty clipsProperty = targetTrack.FindPropertyRelative("clips");
+                for (int clipIndex = 0; clipIndex < sourceTrack.Clips.Count; clipIndex++)
+                {
+                    ClipSnapshot snapshot = CloneSnapshot(sourceTrack.Clips[clipIndex]);
+                    snapshot.StartTime = Mathf.Max(0f, snapshot.StartTime + timeDelta);
+                    clipsProperty.arraySize++;
+                    ApplySnapshotToClipProperty(snapshot, clipsProperty.GetArrayElementAtIndex(clipIndex));
+                }
+            }
+
+            state.TimelineSerializedObject.ApplyModifiedProperties();
+            state.TimelineSerializedObject.Update();
+            RebuildVisibleRows();
+            EditorUtility.SetDirty(state.Timeline);
+            TimelineActionUsageIndex.Invalidate();
+            state.SelectCategory(categoryIndex);
+            Repaint();
+        }
+
+        private static float GetClipboardAnchorTime(List<ClipSnapshot> clips)
+        {
+            float anchor = float.MaxValue;
+            for (int index = 0; index < clips.Count; index++)
+                anchor = Mathf.Min(anchor, clips[index].StartTime);
+            return anchor < float.MaxValue ? anchor : 0f;
+        }
+
+        private static float GetClipboardAnchorTimeFromTracks(List<ClipboardTrack> tracks)
+        {
+            float anchor = float.MaxValue;
+            for (int trackIndex = 0; trackIndex < tracks.Count; trackIndex++)
+                anchor = Mathf.Min(anchor, GetClipboardAnchorTime(tracks[trackIndex].Clips));
+            return anchor < float.MaxValue ? anchor : 0f;
+        }
+
+        private static ClipSnapshot CloneSnapshot(ClipSnapshot source)
+        {
+            return new ClipSnapshot
+            {
+                DebugName = source.DebugName,
+                StartTime = source.StartTime,
+                Action = source.Action,
+                UseDurationOverride = source.UseDurationOverride,
+                DurationOverride = source.DurationOverride,
+                OriginalTrackIndex = source.OriginalTrackIndex,
+                OriginalClipIndex = source.OriginalClipIndex,
+                TargetTrackIndex = source.TargetTrackIndex
+            };
+        }
+
         private void AddTrack()
         {
             AddTrackToCategory(ResolveCategoryIndexForNewTrack());
@@ -2146,11 +2646,21 @@ namespace Beardmage.ActionTimeline.Editor
             if (trackCount <= 0)
                 return;
 
+            bool usePlayhead = state.SelectionKind == TimelineSelectionKind.Timeline || state.HasTrackSelection || state.HasClipSelection || state.HasCategorySelection;
             int targetTrackIndex = (state.HasTrackSelection || state.HasClipSelection)
                 ? Mathf.Clamp(state.SelectedTrackIndex, 0, trackCount - 1)
-                : 0;
-            float startTime = GetCurrentTimelineDuration();
+                : (state.HasLastMouseTimelineContext && state.LastHoveredTrackIndex >= 0
+                    ? Mathf.Clamp(state.LastHoveredTrackIndex, 0, trackCount - 1)
+                    : (state.HasLastMouseTimelineContext ? Mathf.Max(0, GetNearestTrackToVisibleRow(state.LastHoveredRowIndex)) : 0));
+            float startTime = GetPreferredAddClipStartTime(usePlayhead);
             AddClipToTrack(targetTrackIndex, startTime);
+        }
+
+        private float GetPreferredAddClipStartTime(bool usePlayhead)
+        {
+            return usePlayhead || !state.HasLastMouseTimelineContext
+                ? state.PlayheadTime
+                : state.LastMouseTime;
         }
 
         private void AddClipToTrack(int trackIndex, float startTime)
@@ -2176,28 +2686,7 @@ namespace Beardmage.ActionTimeline.Editor
 
         private void DuplicateSelectedClip()
         {
-            SerializedProperty clipProperty = GetSelectedClipProperty();
-            if (clipProperty == null)
-                return;
-
-            int trackIndex = state.SelectedTrackIndex;
-            SerializedProperty trackProperty = GetTrackProperty(trackIndex);
-            if (trackProperty == null)
-                return;
-
-            Undo.RecordObject(state.Timeline, "Duplicate Timeline Clip");
-            SerializedProperty clipsProperty = trackProperty.FindPropertyRelative("clips");
-            int newIndex = clipsProperty.arraySize;
-            clipsProperty.arraySize++;
-            SerializedProperty newClipProperty = clipsProperty.GetArrayElementAtIndex(newIndex);
-            CopyClipProperty(clipProperty, newClipProperty);
-            SerializedProperty startTimeProperty = newClipProperty.FindPropertyRelative("startTime");
-            startTimeProperty.floatValue = Mathf.Max(0f, startTimeProperty.floatValue + 0.05f);
-            state.TimelineSerializedObject.ApplyModifiedProperties();
-            EditorUtility.SetDirty(state.Timeline);
-            TimelineActionUsageIndex.Invalidate();
-            state.SelectClip(trackIndex, newIndex);
-            Repaint();
+            DuplicateSelectionAtPointer();
         }
 
         private static void RemoveArrayElementAtIndexCompletely(SerializedProperty arrayProperty, int index)
@@ -2514,6 +3003,38 @@ namespace Beardmage.ActionTimeline.Editor
                 return;
 
             bool shouldBlockStructuralShortcuts = ShouldBlockStructuralShortcuts();
+            bool commandModifier = current.control || current.command;
+
+            if (commandModifier && current.keyCode == KeyCode.C)
+            {
+                if (shouldBlockStructuralShortcuts)
+                    return;
+
+                CopySelectionToClipboard();
+                current.Use();
+                return;
+            }
+
+            if (commandModifier && current.keyCode == KeyCode.V)
+            {
+                if (shouldBlockStructuralShortcuts)
+                    return;
+
+                PasteClipboardAtPointer();
+                current.Use();
+                return;
+            }
+
+            if (commandModifier && current.keyCode == KeyCode.D)
+            {
+                if (shouldBlockStructuralShortcuts)
+                    return;
+
+                DuplicateSelectionAtPointer();
+                current.Use();
+                return;
+            }
+
             if ((current.keyCode == KeyCode.Delete || current.keyCode == KeyCode.Backspace) && ActiveSettings.AllowDeleteShortcut)
             {
                 if (shouldBlockStructuralShortcuts)
@@ -2574,6 +3095,7 @@ namespace Beardmage.ActionTimeline.Editor
 
                 state.ClearPendingClipPress();
                 state.ClearPendingCategoryPress();
+                state.EndPlayheadDrag();
                 state.SelectTimeline();
                 current.Use();
                 Repaint();
@@ -2712,6 +3234,22 @@ namespace Beardmage.ActionTimeline.Editor
             return new TrackAddress(-1, -1);
         }
 
+        private bool IsCategoryEnabled(int categoryIndex)
+        {
+            SerializedProperty categoryProperty = GetCategoryProperty(categoryIndex);
+            SerializedProperty enabledProperty = categoryProperty != null ? categoryProperty.FindPropertyRelative("isEnabled") : null;
+            return enabledProperty == null || enabledProperty.boolValue;
+        }
+
+        private bool IsTrackEnabled(int trackIndex)
+        {
+            TrackAddress address = GetTrackAddress(trackIndex);
+            SerializedProperty trackProperty = GetTrackProperty(trackIndex);
+            SerializedProperty trackEnabledProperty = trackProperty != null ? trackProperty.FindPropertyRelative("isEnabled") : null;
+            return address.IsValid && IsCategoryEnabled(address.CategoryIndex) &&
+                   (trackEnabledProperty == null || trackEnabledProperty.boolValue);
+        }
+
         private int GetFlatTrackIndex(int categoryIndex, int localTrackIndex)
         {
             SerializedProperty categoriesProperty = GetCategoriesProperty();
@@ -2784,6 +3322,21 @@ namespace Beardmage.ActionTimeline.Editor
                     return rowIndex;
             }
             return -1;
+        }
+
+        private int GetLastVisibleRowIndexForCategory(int categoryIndex)
+        {
+            int categoryRowIndex = GetVisibleRowIndexForCategory(categoryIndex);
+            if (categoryRowIndex < 0)
+                return -1;
+
+            for (int rowIndex = visibleRows.Count - 1; rowIndex > categoryRowIndex; rowIndex--)
+            {
+                if (visibleRows[rowIndex].CategoryIndex == categoryIndex)
+                    return rowIndex;
+            }
+
+            return categoryRowIndex;
         }
 
         private int ResolveCategoryIndexForNewTrack()
@@ -3105,8 +3658,10 @@ namespace Beardmage.ActionTimeline.Editor
             return chars.Count == 0 ? string.Empty : new string(chars.ToArray());
         }
 
-        private Color ResolveClipBackgroundColor(TimelineAction action, bool isPrimary, bool isSelected, bool hasClipError)
+        private Color ResolveClipBackgroundColor(TimelineAction action, bool isPrimary, bool isSelected, bool hasClipError, bool isDisabled)
         {
+            if (isDisabled)
+                return Color.Lerp(ActiveTheme.ResolveClipBackgroundColor(action), TimelineEditorStyles.DisabledClipColor, 0.78f);
             if (isPrimary)
                 return TimelineEditorStyles.ClipSelectedColor;
             if (isSelected)

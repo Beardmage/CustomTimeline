@@ -21,6 +21,13 @@ namespace Beardmage.ActionTimeline.Editor
         public float InspectorWidth { get; set; } = DefaultInspectorWidth;
         public bool ShowShortcutHints { get; set; }
 
+        public float PlayheadTime { get; private set; }
+        public bool IsDraggingPlayhead { get; private set; }
+        public float LastMouseTime { get; set; }
+        public int LastHoveredTrackIndex { get; set; } = -1;
+        public int LastHoveredRowIndex { get; set; } = -1;
+        public bool HasLastMouseTimelineContext { get; set; }
+
         public TimelineSelectionKind SelectionKind { get; private set; } = TimelineSelectionKind.None;
         public int SelectedCategoryIndex { get; private set; } = -1;
         public int SelectedTrackIndex { get; private set; } = -1;
@@ -74,6 +81,12 @@ namespace Beardmage.ActionTimeline.Editor
             PixelsPerSecond = DefaultPixelsPerSecond;
             InspectorWidth = DefaultInspectorWidth;
             ShowShortcutHints = false;
+            PlayheadTime = 0f;
+            IsDraggingPlayhead = false;
+            LastMouseTime = 0f;
+            LastHoveredTrackIndex = -1;
+            LastHoveredRowIndex = -1;
+            HasLastMouseTimelineContext = false;
             ClearPendingClipPress();
             ClearPendingCategoryPress();
             ClearDragState();
@@ -94,6 +107,22 @@ namespace Beardmage.ActionTimeline.Editor
             selectedClips.Clear();
             if (changed)
                 InspectorScroll = Vector2.zero;
+        }
+
+        public void SetPlayheadTime(float time)
+        {
+            PlayheadTime = Mathf.Max(0f, time);
+        }
+
+        public void BeginPlayheadDrag(float time)
+        {
+            SetPlayheadTime(time);
+            IsDraggingPlayhead = true;
+        }
+
+        public void EndPlayheadDrag()
+        {
+            IsDraggingPlayhead = false;
         }
 
         public void SelectTimeline()

@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEditor;
 
 namespace Beardmage.ActionTimeline.Editor
 {
@@ -12,6 +13,10 @@ namespace Beardmage.ActionTimeline.Editor
         menuName = "Action Timeline/Editor/Timeline Editor Settings")]
     public sealed class TimelineEditorSettingsAsset : ScriptableObject
     {
+        [Header("Activation")]
+        [SerializeField, HideInInspector, Tooltip("If enabled, this asset is used as the active Timeline Editor settings source.")]
+        private bool isActive;
+
         [Header("Interaction")]
         [SerializeField, Tooltip("Mouse movement threshold before a clip press becomes an active drag.")]
         private float dragStartPixelThreshold = 4f;
@@ -121,6 +126,7 @@ namespace Beardmage.ActionTimeline.Editor
         public bool AllowAddTrackShortcut => allowAddTrackShortcut;
         public bool AllowAddClipShortcut => allowAddClipShortcut;
         public bool AllowAutoArrangeShortcut => allowAutoArrangeShortcut;
+        public bool IsActive => isActive;
 
         private void OnValidate()
         {
@@ -130,6 +136,31 @@ namespace Beardmage.ActionTimeline.Editor
             minPixelsPerSecond = Mathf.Max(1f, minPixelsPerSecond);
             maxPixelsPerSecond = Mathf.Max(minPixelsPerSecond, maxPixelsPerSecond);
             defaultPixelsPerSecond = Mathf.Clamp(defaultPixelsPerSecond, minPixelsPerSecond, maxPixelsPerSecond);
+        }
+    }
+
+    [CustomEditor(typeof(TimelineEditorSettingsAsset))]
+    internal sealed class TimelineEditorSettingsAssetInspector : UnityEditor.Editor
+    {
+        public override void OnInspectorGUI()
+        {
+            serializedObject.Update();
+            DrawDefaultInspector();
+            serializedObject.ApplyModifiedProperties();
+
+            TimelineEditorSettingsAsset settings = (TimelineEditorSettingsAsset)target;
+            EditorGUILayout.Space(8f);
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                using (new EditorGUI.DisabledScope(settings.IsActive))
+                {
+                    if (GUILayout.Button(settings.IsActive ? "Active Settings" : "Set as Active"))
+                        TimelineEditorConfigLocator.SetActiveSettings(settings);
+                }
+
+                if (GUILayout.Button("Ping"))
+                    EditorGUIUtility.PingObject(settings);
+            }
         }
     }
 

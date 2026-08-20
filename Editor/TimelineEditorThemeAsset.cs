@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEditor;
 
 namespace Beardmage.ActionTimeline.Editor
 {
@@ -14,6 +15,10 @@ namespace Beardmage.ActionTimeline.Editor
         menuName = "Action Timeline/Editor/Timeline Editor Theme")]
     public sealed class TimelineEditorThemeAsset : ScriptableObject
     {
+        [Header("Activation")]
+        [SerializeField, HideInInspector, Tooltip("If enabled, this asset is used as the active Timeline Editor theme source.")]
+        private bool isActive;
+
         [Header("Window")]
         [SerializeField, Tooltip("Main background color behind the whole window content.")]
         private Color windowBackground = new Color(0.18f, 0.18f, 0.18f, 1f);
@@ -186,6 +191,7 @@ namespace Beardmage.ActionTimeline.Editor
         public float SectionSpacing => sectionSpacing;
         public float PanelPadding => panelPadding;
         public IReadOnlyList<TimelineActionStyleEntry> ActionStyles => actionStyles;
+        public bool IsActive => isActive;
 
         public bool TryGetActionStyle(string actionTypeName, out TimelineActionStyleEntry style)
         {
@@ -228,6 +234,31 @@ namespace Beardmage.ActionTimeline.Editor
             clipVerticalPadding = Mathf.Max(0f, clipVerticalPadding);
             sectionSpacing = Mathf.Max(0f, sectionSpacing);
             panelPadding = Mathf.Max(0f, panelPadding);
+        }
+    }
+
+    [CustomEditor(typeof(TimelineEditorThemeAsset))]
+    internal sealed class TimelineEditorThemeAssetInspector : UnityEditor.Editor
+    {
+        public override void OnInspectorGUI()
+        {
+            serializedObject.Update();
+            DrawDefaultInspector();
+            serializedObject.ApplyModifiedProperties();
+
+            TimelineEditorThemeAsset theme = (TimelineEditorThemeAsset)target;
+            EditorGUILayout.Space(8f);
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                using (new EditorGUI.DisabledScope(theme.IsActive))
+                {
+                    if (GUILayout.Button(theme.IsActive ? "Active Theme" : "Set as Active"))
+                        TimelineEditorConfigLocator.SetActiveTheme(theme);
+                }
+
+                if (GUILayout.Button("Ping"))
+                    EditorGUIUtility.PingObject(theme);
+            }
         }
     }
 

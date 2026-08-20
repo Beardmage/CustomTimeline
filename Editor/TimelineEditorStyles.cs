@@ -16,6 +16,7 @@ namespace Beardmage.ActionTimeline.Editor
         public static GUIStyle TrackLabelStyle { get; private set; }
         public static GUIStyle CategoryLabelStyle { get; private set; }
         public static GUIStyle TrackChildLabelStyle { get; private set; }
+        public static GUIStyle TrackChildBadgeStyle { get; private set; }
         public static GUIStyle ClipLabelStyle { get; private set; }
         public static GUIStyle InspectorHeaderStyle { get; private set; }
         public static GUIStyle EmptyStateStyle { get; private set; }
@@ -25,6 +26,7 @@ namespace Beardmage.ActionTimeline.Editor
         public static float RulerHeight => ActiveTheme.RulerHeight;
         public static float LaneHeight => ActiveTheme.LaneHeight;
         public static float MinClipVisualWidth => ActiveTheme.MinClipVisualWidth;
+        public static float ClipVerticalPadding => ActiveTheme.ClipVerticalPadding;
 
         public static Color WindowBackground => ActiveTheme.WindowBackground;
         public static Color PanelBackground => ActiveTheme.PanelBackground;
@@ -41,13 +43,16 @@ namespace Beardmage.ActionTimeline.Editor
         public static Color ClipPreviewInvalidColor => ActiveTheme.DragPreviewInvalidColor;
         public static Color ClipInvalidColor => ActiveTheme.OverlapWarningColor;
         public static Color ClipBorderColor => ActiveTheme.ClipBorderColor;
+        public static Color DisabledClipColor => ActiveTheme.ClipDisabledColor;
         public static Color WarningColor => ActiveTheme.WarningColor;
         public static Color ErrorColor => ActiveTheme.ErrorColor;
         public static Color AddTrackButtonColor => ActiveTheme.AddTrackButtonColor;
-        public static Color CategoryRowColor => Color.Lerp(ActiveTheme.PanelBackground, ActiveTheme.LaneBackground, 0.35f);
-        public static Color TrackChildRowColor => Color.Lerp(ActiveTheme.PanelBackground, ActiveTheme.LaneAlternateBackground, 0.65f);
+        public static Color CategoryRowColor => Color.Lerp(ActiveTheme.PanelBackground, ActiveTheme.SectionHeaderBackground, 0.72f);
+        public static Color TrackChildRowColor => Color.Lerp(ActiveTheme.LaneAlternateBackground, Color.white, 0.14f);
         public static Color CategoryActivityColor => new Color(0.28f, 0.48f, 0.72f, 0.72f);
         public static Color CategoryActivitySelectedColor => new Color(0.20f, 0.58f, 0.95f, 0.9f);
+        public static Color SelectionOutlineColor => new Color(ActiveTheme.ClipSelectedColor.r, ActiveTheme.ClipSelectedColor.g, ActiveTheme.ClipSelectedColor.b, 0.58f);
+        public static Color PlayheadColor => new Color(1f, 1f, 1f, 0.86f);
 
         private static TimelineEditorThemeAsset ActiveTheme => activeTheme ? activeTheme : TimelineEditorThemeDefaults.Instance;
 
@@ -85,6 +90,12 @@ namespace Beardmage.ActionTimeline.Editor
                     alignment = TextAnchor.MiddleLeft,
                     clipping = TextClipping.Clip,
                     fontStyle = FontStyle.Normal
+                };
+
+                TrackChildBadgeStyle = new GUIStyle(EditorStyles.miniLabel)
+                {
+                    alignment = TextAnchor.MiddleCenter,
+                    fontStyle = FontStyle.Bold
                 };
 
                 ClipLabelStyle = new GUIStyle(EditorStyles.miniLabel)
@@ -150,6 +161,7 @@ namespace Beardmage.ActionTimeline.Editor
             TrackLabelStyle = null;
             CategoryLabelStyle = null;
             TrackChildLabelStyle = null;
+            TrackChildBadgeStyle = null;
             ClipLabelStyle = null;
             InspectorHeaderStyle = null;
             EmptyStateStyle = null;
@@ -180,7 +192,7 @@ namespace Beardmage.ActionTimeline.Editor
 
         private static void ApplyThemeToStyles()
         {
-            if (TrackLabelStyle == null || CategoryLabelStyle == null || TrackChildLabelStyle == null ||
+            if (TrackLabelStyle == null || CategoryLabelStyle == null || TrackChildLabelStyle == null || TrackChildBadgeStyle == null ||
                 ClipLabelStyle == null || InspectorHeaderStyle == null || EmptyStateStyle == null || MiniBadgeStyle == null)
                 return;
 
@@ -199,6 +211,11 @@ namespace Beardmage.ActionTimeline.Editor
             TrackChildLabelStyle.hover.textColor = childTextColor;
             TrackChildLabelStyle.active.textColor = childTextColor;
             TrackChildLabelStyle.focused.textColor = childTextColor;
+
+            TrackChildBadgeStyle.normal.textColor = childTextColor;
+            TrackChildBadgeStyle.hover.textColor = childTextColor;
+            TrackChildBadgeStyle.active.textColor = childTextColor;
+            TrackChildBadgeStyle.focused.textColor = childTextColor;
 
             ClipLabelStyle.normal.textColor = ActiveTheme.ClipTextColor;
             ClipLabelStyle.hover.textColor = ActiveTheme.ClipTextColor;
